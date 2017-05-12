@@ -2,7 +2,7 @@
 
 picosdk-ethernet-protocol-examples is a set of examples demonstrating the use of ethernet protocol commands with PicoLog data logger products.
 
-Examples are provided as Microsoft Visual Studio Community 2017 solutions and are grouped by driver name.
+Examples are grouped by driver name and with a sub-folder for programming language.
 
 ## Getting started
 
