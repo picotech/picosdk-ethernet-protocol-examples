@@ -13,15 +13,15 @@ Examples are grouped by driver name and with a sub-folder for programming langua
 ##### Microsoft Windows
 
 * Use the Ethernet Settings utility provided with the PicoLog software to configure the IP address and port of the device, or alternatively
-* Use one of our [software examples](https://github.com/picotech) to do the same.
+* Use one of our [software examples](https://github.com/picotech) for the relevant device driver to do the same.
 
 ##### Linux
 
-* Use one of our [software examples](https://github.com/picotech) to configure the IP address and port of the device.
+* Use one of our [software examples](https://github.com/picotech) for the relevant device driver to configure the IP address and port of the device.
 
 ##### Mac OS X
 
-* Use one of our [software examples](https://github.com/picotech) to configure the IP address and port of the device.
+* Use one of our [software examples](https://github.com/picotech) for the relevant device driver to configure the IP address and port of the device.
 
 #### Examples
 
