@@ -1,6 +1,6 @@
 # picosdk-ethernet-protocol-examples
 
-picosdk-ethernet-protocol-examples is a set of examples demonstrating the use of ethernet protocol commands with PicoLog data logger products.
+*picosdk-ethernet-protocol-examples* is a set of examples demonstrating the use of ethernet protocol commands with PicoLog data logger products.
 
 Examples are grouped by driver name and with a sub-folder for programming language.
 
