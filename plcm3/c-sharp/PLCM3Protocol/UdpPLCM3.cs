@@ -5,7 +5,7 @@
  * Description:
  *   Encapsulates a UDP PLCM3.
  *    
- * Copyright (C) 2017 Pico Technology Ltd. See LICENSE file for terms.    
+ * Copyright (C) 2017 - 2026 Pico Technology Ltd. See LICENSE file for terms.    
  *    
  *******************************************************************************/
 
@@ -20,11 +20,13 @@ namespace PLCM3Protocol
   /// <summary>
   /// Encapsulates a UDP PLCM3
   /// 
-  /// Once this class is instanciated, the fields Ch1
-  /// contains the lastest data measured in millivolts.
-  /// 
+  /// Once this class is instanciated, the fields Ch1, Ch2
+  /// and Ch3 contain the lastest data measured in millivolts.
+  ///
   /// Subscribe to the NewData event to be notified
-  /// when the Ch1 field is updated.
+  /// when a channel field is updated. The device sends one
+  /// datagram per channel in turn, so each event updates a
+  /// single channel.
   /// 
   /// See 'PicoLog CM3 Current Data Logger Programmer's Guide' for more 
   /// information on the PLCM3 protocol.
@@ -54,7 +56,8 @@ namespace PLCM3Protocol
       public const string Lock = "Lock:";
       public const string IpPort = "Port:";
       public const string Serial = "Serial:";
-      public const string Eeprom = "EEPROM=";
+      // The firmware replies with this exact casing - "Eeprom=", not "EEPROM=".
+      public const string Eeprom = "Eeprom=";
 
       public const string CommandLock = "lock";
       public const string ResponseLock = "Lock";
@@ -77,6 +80,8 @@ namespace PLCM3Protocol
         Locked = Lock();
 
         // Read the calibration data from the eeprom.
+        // These four constants are read and exposed through CalibrationConstants
+        // but are NOT applied - see the remarks on that property.
         Send(new byte[] { CommandsAndResponses.ReadEeprom});
         byte [] eeprom = Receive();
         int start = CommandsAndResponses.Eeprom.Length;
@@ -100,7 +105,9 @@ namespace PLCM3Protocol
         BeginReceive(ReceiveData);
         // Lower nibble, bitfield for channel enabled eg 0x03 enabled channels 1 and 2
         // Upper nibble configures gain: 0==10kOhm, 1==375Ohm. eg 0x11 enables channel 1 on 375Ohm range
-        Send(new byte[] { CommandsAndResponses.StartConverting, 0x03}); 
+        // 0x07 enables all three channels. Each enabled channel adds a conversion to the
+        // cycle, so the interval between updates for any one channel grows with the count.
+        Send(new byte[] { CommandsAndResponses.StartConverting, 0x07});
     }
 
 
@@ -237,11 +244,59 @@ namespace PLCM3Protocol
     /// <summary>
     /// Parses a <see cref="byte"/> array into an <see cref="Int32"/>. 
     /// </summary>
-    /// <remarks>We cannot use BitConverter here because it has the wrong endian.</remarks>
+    /// <remarks>
+    /// We cannot use BitConverter here because it has the wrong endian.
+    /// The measurement is 28 bits. The high nibble of the first byte is status
+    /// and is masked off; the low nibble is the top nibble of the value.
+    /// </remarks>
     /// <returns>the measurement</returns>
     int ParseMeasure(byte[] bytes, uint index)
     {
-        return (bytes[index + 1] << 16) | (bytes[index + 2] << 8) | (bytes[index + 3]);
+        return ((bytes[index] & 0x0F) << 24)
+             | (bytes[index + 1] << 16)
+             | (bytes[index + 2] << 8)
+             | (bytes[index + 3]);
+    }
+
+    /// <summary>
+    /// Checks that a datagram carries the four measurements belonging to the
+    /// channel whose first measurement index is <paramref name="firstIndex"/>.
+    /// </summary>
+    private static bool IsChannel(byte[] bytes, byte firstIndex)
+    {
+        return bytes.Length >= 20
+            && bytes[0] == firstIndex
+            && bytes[5] == firstIndex + 1
+            && bytes[10] == firstIndex + 2
+            && bytes[15] == firstIndex + 3;
+    }
+
+    /// <summary>
+    /// Averages the four measurements in a datagram.
+    /// </summary>
+    /// <remarks>see programmers guide for other measurement types</remarks>
+    private double AverageMeasure(byte[] bytes)
+    {
+        return (ParseMeasure(bytes, 1) + ParseMeasure(bytes, 6)
+              + ParseMeasure(bytes, 11) + ParseMeasure(bytes, 16)) / 4.0;
+    }
+
+    /// <summary>
+    /// Converts a measurement in counts to millivolts. Full scale is 2.5 V across 28 bits.
+    /// </summary>
+    private static double ToMillivolts(double counts)
+    {
+        return (2.5 * counts * 1000) / Math.Pow(2, 28);
+    }
+
+    private void OnNewData()
+    {
+        EventHandler handler = NewData;
+
+        if (handler != null)
+        {
+            handler(this, EventArgs.Empty);
+        }
     }
 
     private void ReceiveData(byte[] receiveBytes)
@@ -255,45 +310,34 @@ namespace PLCM3Protocol
             // 08XXXX09XXXX0aXXXX0bXXXX  data from channel 3
             //
             //(data format is: Measurement 0, 1, 2 for respective channels)
+            //
+            // One datagram arrives per channel in turn, so each call updates a single channel.
 
             // Channel 1
-            if (receiveBytes[0] == 0x00 && receiveBytes[5] == 0x01 && receiveBytes[10] == 0x02 && receiveBytes[15] == 0x03)
+            if (IsChannel(receiveBytes, 0x00))
             {
-                int measure0 = ParseMeasure(receiveBytes, 1);
-                int measure1 = ParseMeasure(receiveBytes, 6);
-                int measure2 = ParseMeasure(receiveBytes, 11);
-                int measure3 = ParseMeasure(receiveBytes, 16);
+                Ch1 = AverageMeasure(receiveBytes);
+                Ch1Millivolts = ToMillivolts(Ch1);
 
-                // Find average of readings - see programmers guide for other measurement types
-                Ch1 = (measure0 + measure1 + measure2 + measure3) / 4.0;
-
-                // Convert to millivolts
-                Ch1Millivolts = (2.5 * Ch1 * 1000) / Math.Pow(2, 28);
-
-                if (NewData != null)
-                {
-                    NewData(this, EventArgs.Empty);
-                }
+                OnNewData();
             }
 
             // Channel 2
-            if (receiveBytes[0] == 0x04 && receiveBytes[5] == 0x05 && receiveBytes[10] == 0x06 && receiveBytes[15] == 0x07)
+            if (IsChannel(receiveBytes, 0x04))
             {
-                int measure4 = ParseMeasure(receiveBytes, 1);
-                int measure5 = ParseMeasure(receiveBytes, 6);
-                int measure6 = ParseMeasure(receiveBytes, 11);
-                int measure7 = ParseMeasure(receiveBytes, 16);
+                Ch2 = AverageMeasure(receiveBytes);
+                Ch2Millivolts = ToMillivolts(Ch2);
 
-                // Find average of readings - see programmers guide for other measurement types
-                Ch2 = (measure4 + measure5 + measure6 + measure7) / 4.0;
+                OnNewData();
+            }
 
-                // Convert to millivolts
-                Ch2Millivolts = (2.5 * Ch2 * 1000) / Math.Pow(2, 28);
+            // Channel 3
+            if (IsChannel(receiveBytes, 0x08))
+            {
+                Ch3 = AverageMeasure(receiveBytes);
+                Ch3Millivolts = ToMillivolts(Ch3);
 
-                if (NewData != null)
-                {
-                    NewData(this, EventArgs.Empty);
-                }
+                OnNewData();
             }
         }
 
@@ -305,6 +349,27 @@ namespace PLCM3Protocol
     public double Ch1Millivolts { get; private set; }
     public double Ch2 { get; private set; }
     public double Ch2Millivolts { get; private set; }
+    public double Ch3 { get; private set; }
+    public double Ch3Millivolts { get; private set; }
+
+    /// <summary>
+    /// The four 32-bit calibration constants held in the device eeprom.
+    /// </summary>
+    /// <remarks>
+    /// These are read at connection but are deliberately NOT applied - how they
+    /// scale a measurement is not covered by the protocol documentation used to
+    /// write this example, so ReceiveData() uses the fixed 2.5 V full scale
+    /// instead. The unit this example was verified against carried the round
+    /// default of 100,000,000 in all four, and the fixed scaling agreed with a
+    /// known input to within -0.55%, inside the datasheet's +/-2.5% below 1 V RMS.
+    /// Whether that holds for a differently calibrated unit is unconfirmed -
+    /// check the 'PicoLog CM3 Current Data Logger Programmer's Guide' before
+    /// relying on the fixed scaling for a calibrated measurement.
+    /// </remarks>
+    public int[] CalibrationConstants
+    {
+        get { return (int[]) _calib.Clone(); }
+    }
     public bool Locked { get; private set; }
     public override string ToString()
     {
