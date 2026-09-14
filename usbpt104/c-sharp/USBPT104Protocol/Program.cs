@@ -14,31 +14,36 @@ using System;
 
 namespace USBPT104Protocol
 {
-  class Program
-  {
-    static void Main()
-    {
-      using(UdpPt104 pt104 = UdpPt104.FindDevice())
-      {
-        if (pt104 != null)
-        {
-          Console.Out.WriteLine("Found Device: {0}", pt104);
+	class Program
+	{
+		static void Main()
+		{
+			using (UdpPt104 pt104 = UdpPt104.FindDevice())
+			{
+				if (pt104 != null)
+				{
+					// Enabled channels 1 and 2, set frequency rejection to 50Hz.
+					pt104.InitConfigure(0x03, 0x00);
 
-          pt104.NewData +=
-            delegate(object sender, EventArgs args)
-              {
-                UdpPt104 p = (UdpPt104) sender;
-                Console.Out.WriteLine("{0}:\tCh1 {1}", p.SerialNumber, p.Ch1);
-              };
-        }
-        else
-        {
-          Console.Out.WriteLine("No Devices Found");
-        }
+					Console.Out.WriteLine("Found Device: {0}", pt104);
 
-        Console.ReadKey();
-      }
-    }
+					pt104.NewData +=
+					  delegate (Object sender, EventArgs args)
+						{
+							UdpPt104 p = (UdpPt104)sender;
+							for (Int32 i = 0; i < p.Ch.Length; i++)
+							{
+								Console.Out.WriteLine("{0}:\tCh{1} {2}", p.SerialNumber, i, p.Ch[i]);
+							}
+						};
+				}
+				else
+				{
+					Console.Out.WriteLine("No Devices Found");
+				}
 
-  }
+				Console.ReadKey();
+			}
+		}
+	}
 }
